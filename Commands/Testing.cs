@@ -1,7 +1,6 @@
-﻿using DSharpPlus.Entities;
-using DSharpPlus;
+﻿using DSharpPlus;
+using DSharpPlus.Entities;
 using DSharpPlus.SlashCommands;
-using Badger.Class;
 
 namespace Badger.Commands
 {
@@ -10,27 +9,19 @@ namespace Badger.Commands
         [SlashCommand("test", "This is a test")]
         public async Task Test(InteractionContext ctx)
         {
-            try
-            {
-                await ctx.CreateResponseAsync(InteractionResponseType.DeferredChannelMessageWithSource, new DiscordInteractionResponseBuilder() { IsEphemeral = true });
+            await ctx.CreateResponseAsync(InteractionResponseType.DeferredChannelMessageWithSource, new DiscordInteractionResponseBuilder() { IsEphemeral = true });
 
-                DiscordEmbedBuilder embed = new()
-                {
-                    Color = new DiscordColor("#FFFFFF"),
-                    Title = "__**Success:**__",
-                    Description = $"*This was a successful test.*",
-                    Footer = new DiscordEmbedBuilder.EmbedFooter
-                    {
-                        Text = $"Server Time: {DateTime.Now}"
-                    }
-                };
-                await ctx.EditResponseAsync(new DiscordWebhookBuilder().AddEmbed(embed));
-            }
-            catch (Exception ex)
+            DiscordEmbedBuilder embed = new()
             {
-                Console.WriteLine(ex);
-                await Util.ThrowError(ctx, ex);
-            }
+                Color = new DiscordColor("#FFFFFF"),
+                Title = "__**Success:**__",
+                Description = $"*This was a successful test.*",
+                Footer = new DiscordEmbedBuilder.EmbedFooter
+                {
+                    Text = $"Server Time: {DateTime.Now}"
+                }
+            };
+            await ctx.EditResponseAsync(new DiscordWebhookBuilder().AddEmbed(embed));
         }
     }
 }
