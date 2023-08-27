@@ -35,7 +35,7 @@ namespace Badger.Commands
             {
                 Color = new DiscordColor("#FFFFFF"),
                 Title = $"__**Github:**__",
-                Description = "Insert Link",
+                Description = "https://github.com/Brawlboxgaming/The-Badger",
                 Footer = new DiscordEmbedBuilder.EmbedFooter
                 {
                     Text = $"Server Time: {DateTime.Now}"
