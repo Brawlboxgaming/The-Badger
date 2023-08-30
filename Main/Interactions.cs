@@ -1,4 +1,5 @@
 ﻿using System.Text.RegularExpressions;
+using System.Threading.Channels;
 using Badger.Class;
 using Badger.Commands;
 using DSharpPlus;
@@ -49,7 +50,7 @@ namespace Badger
 
         private async Task UpdateVoiceChannels(DiscordClient client, VoiceStateUpdateEventArgs eventArgs)
         {
-            again:
+        again:
             if (_updatingChannels)
             {
                 _eventDuringChannelUpdate = true;
@@ -66,8 +67,11 @@ namespace Badger
                     channelName = m.Groups[1].Value;
                     await UpdateVoiceChannelCollection(eventArgs.Guild, channelName);
                 }
-                if (eventArgs.After != null && eventArgs.After.Channel != null && (m = Regex.Match(eventArgs.After.Channel.Name, @"^(.*) #\d+$")).Success && m.Groups[1].Value != channelName)
+                if (eventArgs.After != null && eventArgs.After.Channel != null &&
+                    (m = Regex.Match(eventArgs.After.Channel.Name, @"^(.*) #\d+$")).Success && m.Groups[1].Value != channelName)
+                {
                     await UpdateVoiceChannelCollection(eventArgs.Guild, m.Groups[1].Value);
+                }
 
                 _updatingChannels = false;
                 if (_eventDuringChannelUpdate)
@@ -104,9 +108,25 @@ namespace Badger
                 if (channelInfos[chIx].UserCount == 0)
                 {
                     if (isFirst)
+                    {
                         isFirst = false;
+                    }
                     else
                     {
+                        DiscordChannel logChannel = Bot.Client.GetGuildAsync(343867882264068098).Result.GetChannel(1144368862507303003);
+                        DiscordEmbedBuilder embed = new()
+                        {
+                            Color = new DiscordColor("#FFFFFF"),
+                            Title = $"__**Notice:**__",
+                            Description = $"Deleted VC {channelInfos[chIx].Channel.Name}.",
+                            Footer = new DiscordEmbedBuilder.EmbedFooter
+                            {
+                                Text = $"Server Time: {DateTime.Now}"
+                            }
+                        };
+
+                        await logChannel.SendMessageAsync(embed);
+
                         await channelInfos[chIx].Channel.DeleteAsync();
                         channelInfos.RemoveAt(chIx);
                         chIx--;
@@ -120,7 +140,23 @@ namespace Badger
             foreach (var ch in channelInfos)
             {
                 if (ch.Number != curNum)
+                {
+                    DiscordChannel logChannel = Bot.Client.GetGuildAsync(343867882264068098).Result.GetChannel(1144368862507303003);
+                    DiscordEmbedBuilder embed = new()
+                    {
+                        Color = new DiscordColor("#FFFFFF"),
+                        Title = $"__**Notice:**__",
+                        Description = $"Renamed VC {ch.Channel.Name} to {name} #{curNum}.",
+                        Footer = new DiscordEmbedBuilder.EmbedFooter
+                        {
+                            Text = $"Server Time: {DateTime.Now}"
+                        }
+                    };
+
+                    await logChannel.SendMessageAsync(embed);
+
                     await ch.Channel.ModifyAsync(cem => cem.Name = $"{name} #{curNum}");
+                }
                 curNum++;
                 hasEmpty = hasEmpty || ch.UserCount == 0;
             }
@@ -129,7 +165,21 @@ namespace Badger
             if (!hasEmpty)
             {
                 DiscordChannel lastChannel = channelInfos.Last().Channel;
-                await guild.CreateChannelAsync($"{name}#{curNum}", ChannelType.Voice, parent: lastChannel.Parent, position: lastChannel.Position);
+                await guild.CreateChannelAsync($"{name} #{curNum}", ChannelType.Voice, parent: lastChannel.Parent, position: lastChannel.Position);
+
+                DiscordChannel logChannel = Bot.Client.GetGuildAsync(343867882264068098).Result.GetChannel(1144368862507303003);
+                DiscordEmbedBuilder embed = new()
+                {
+                    Color = new DiscordColor("#FFFFFF"),
+                    Title = $"__**Notice:**__",
+                    Description = $"Created VC {name} #{curNum}.",
+                    Footer = new DiscordEmbedBuilder.EmbedFooter
+                    {
+                        Text = $"Server Time: {DateTime.Now}"
+                    }
+                };
+
+                await logChannel.SendMessageAsync(embed);
             }
         }
     }
