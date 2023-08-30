@@ -1,9 +1,9 @@
-﻿using DSharpPlus;
+﻿using System.Text.RegularExpressions;
+using Badger.Class;
+using Badger.Commands;
+using DSharpPlus;
 using DSharpPlus.Entities;
 using DSharpPlus.EventArgs;
-using DSharpPlus.Net.Models;
-using System;
-using System.Diagnostics;
 
 namespace Badger
 {
@@ -44,76 +44,93 @@ namespace Badger
             await channel.SendMessageAsync(embed);
         }
 
+        private bool _updatingChannels = false;
+        private bool _eventDuringChannelUpdate = false;
+
         private async Task UpdateVoiceChannels(DiscordClient client, VoiceStateUpdateEventArgs eventArgs)
         {
-            // If someone is leaving a channel
-            if (eventArgs.Before != null && eventArgs.Before.Channel != null)
+            again:
+            if (_updatingChannels)
             {
-                if (eventArgs.Before.Channel.Name.Contains("#"))
+                _eventDuringChannelUpdate = true;
+                return;
+            }
+            _updatingChannels = true;
+            try
+            {
+                // Check if the channel(s) has/have the format "<name> #<number>"
+                string? channelName = null;
+                Match m;
+                if (eventArgs.Before != null && eventArgs.Before.Channel != null && (m = Regex.Match(eventArgs.Before.Channel.Name, @"^(.*) #\d+$")).Success)
                 {
-                    string[] vcInfo = eventArgs.Before.Channel.Name.Split('#');
-                    List<DiscordChannel> channelCollection = await GetSimilarVoiceChannelsAsync(vcInfo, eventArgs, eventArgs.Before.Channel);
-                    if (channelCollection.Count(x => x.Users.Count == 0) == 2)
-                    {
-                        channelCollection = channelCollection.OrderBy(x => int.Parse(x.Name.Split('#')[1])).ToList();
-                        DiscordChannel highestNumChannel = channelCollection[0];
-                        foreach (DiscordChannel channel in channelCollection)
-                        {
-                            if (int.Parse(channel.Name.Split('#')[1]) > int.Parse(highestNumChannel.Name.Split('#')[1]) && channel.Users.Count == 0)
-                            {
-                                highestNumChannel = channel;
-                            }
-                        }
-                        await highestNumChannel.DeleteAsync();
-                        int offset = 0;
-                        for (int i = 0; i < channelCollection.Count; i++)
-                        {
-                            if (channelCollection[i] == highestNumChannel)
-                            {
-                                offset = -1;
-                            }
-                            else
-                            {
-                                Action<ChannelEditModel> action = new(x => x.Name = vcInfo[0] + $"#{i + offset + 1}");
-                                await channelCollection[i].ModifyAsync(action);
-                            }
-                        }
-                    }
+                    channelName = m.Groups[1].Value;
+                    await UpdateVoiceChannelCollection(eventArgs.Guild, channelName);
+                }
+                if (eventArgs.After != null && eventArgs.After.Channel != null && (m = Regex.Match(eventArgs.After.Channel.Name, @"^(.*) #\d+$")).Success && m.Groups[1].Value != channelName)
+                    await UpdateVoiceChannelCollection(eventArgs.Guild, m.Groups[1].Value);
+
+                _updatingChannels = false;
+                if (_eventDuringChannelUpdate)
+                {
+                    _eventDuringChannelUpdate = false;
+                    goto again;
                 }
             }
-            // If someone is joining a channel
-            if (eventArgs.After != null && eventArgs.After.Channel != null)
+            catch (Exception ex)
             {
-                if (eventArgs.After.Channel.Name.Contains("#"))
-                {
-                    string[] vcInfo = eventArgs.After.Channel.Name.Split('#');
-                    List<DiscordChannel> channelCollection = await GetSimilarVoiceChannelsAsync(vcInfo, eventArgs, eventArgs.After.Channel);
-                    if (channelCollection.Count == 1)
-                    {
-                        await eventArgs.Guild.CreateChannelAsync($"{vcInfo[0]}#2", ChannelType.Voice, parent: channelCollection[0].Parent, position: channelCollection[0].Position);
-                    }
-                    else
-                    {
-                        if (eventArgs.After.Channel.Users.Count > 0 && channelCollection.All(x => x.Users.Count > 0))
-                        {
-                            await eventArgs.Guild.CreateChannelAsync($"{vcInfo[0]}#{channelCollection.Count + 1}", ChannelType.Voice, parent: channelCollection[0].Parent, position: channelCollection[0].Position);
-                        }
-                    }
-                }
+                await Util.ThrowInteractionlessError(ex);
+            }
+            finally
+            {
+                _updatingChannels = false;
+                _eventDuringChannelUpdate = false;
             }
         }
 
-        private async Task<List<DiscordChannel>> GetSimilarVoiceChannelsAsync(string[] vcInfo, VoiceStateUpdateEventArgs eventArgs, DiscordChannel originalChannel)
+        private static async Task UpdateVoiceChannelCollection(DiscordGuild guild, string name)
         {
-            List<DiscordChannel> similarChannels = new() { originalChannel };
-            foreach (DiscordChannel channel in await eventArgs.Guild.GetChannelsAsync())
+            // Get a list of all voice channels with this name, their number, and the number of users in them
+            var channelInfos = (await guild.GetChannelsAsync())
+                .Select(ch => new { Channel = ch, Match = Regex.Match(ch.Name, $@"^{Regex.Escape(name)} #(\d+)$") })
+                .Where(inf => inf.Match.Success)
+                .Select(inf => new { inf.Channel, UserCount = inf.Channel.Users.Count, Number = int.Parse(inf.Match.Groups[1].Value) })
+                .OrderBy(inf => inf.Number)
+                .ToList();
+
+            // Delete empty voice channels except for the lowest-numbered one
+            bool isFirst = true;
+            for (int chIx = 0; chIx < channelInfos.Count; chIx++)
             {
-                if (channel.Name.Contains(vcInfo[0]) && !channel.Name.Contains(vcInfo[1]))
+                if (channelInfos[chIx].UserCount == 0)
                 {
-                    similarChannels.Add(channel);
+                    if (isFirst)
+                        isFirst = false;
+                    else
+                    {
+                        await channelInfos[chIx].Channel.DeleteAsync();
+                        channelInfos.RemoveAt(chIx);
+                        chIx--;
+                    }
                 }
             }
-            return similarChannels;
+
+            // Rename channels whose numbers are now out of order
+            bool hasEmpty = false;
+            int curNum = 1;
+            foreach (var ch in channelInfos)
+            {
+                if (ch.Number != curNum)
+                    await ch.Channel.ModifyAsync(cem => cem.Name = $"{name} #{curNum}");
+                curNum++;
+                hasEmpty = hasEmpty || ch.UserCount == 0;
+            }
+
+            // Create a new channel if no channels are empty
+            if (!hasEmpty)
+            {
+                DiscordChannel lastChannel = channelInfos.Last().Channel;
+                await guild.CreateChannelAsync($"{name}#{curNum}", ChannelType.Voice, parent: lastChannel.Parent, position: lastChannel.Position);
+            }
         }
     }
 }
