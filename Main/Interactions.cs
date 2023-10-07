@@ -412,6 +412,28 @@ namespace Badger
 
                         await logChannel.SendMessageAsync(embed);
 
+                        if (channelInfos[chIx].Channel.GetMessagesAsync(1000).Result.Count > 0)
+                        {
+                            string txtFile = $"Last 1000 Messages from {channelInfos[chIx].Channel.Name}:\r\n";
+                            var messages = channelInfos[chIx].Channel.GetMessagesAsync(1000).Result.ToList();
+                            messages.Reverse();
+                            foreach (var message in messages)
+                            {
+                                txtFile += $"{message.CreationTimestamp} - {message.Content}";
+                                foreach (var attachment in message.Attachments)
+                                {
+                                    txtFile += $" {attachment.Url}";
+                                }
+                                txtFile += "\r\n";
+                            }
+                            string fileName = $"{DateTime.Now.ToString().Replace(":", "").Replace("/", "-")} - {channelInfos[chIx].Channel.Name}.txt";
+                            await File.WriteAllTextAsync(fileName, txtFile);
+                            Stream stream = File.Open(fileName, FileMode.Open);
+                            await logChannel.SendMessageAsync(new DiscordMessageBuilder().AddFile(fileName, stream));
+                            stream.Close();
+                            await stream.DisposeAsync();
+                            File.Delete(fileName);
+                        }
                         await channelInfos[chIx].Channel.DeleteAsync();
                         channelInfos.RemoveAt(chIx);
                         chIx--;
