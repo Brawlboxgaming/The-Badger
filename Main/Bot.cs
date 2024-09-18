@@ -62,7 +62,6 @@ namespace Badger
             SlashCommands.RegisterCommands<Testing>();
 #endif
             SlashCommands.RegisterCommands<Info>();
-            SlashCommands.RegisterCommands<GameSearching>();
             SlashCommands.RegisterCommands<Admin>();
 
             await events.AssignAllEvents();

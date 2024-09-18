@@ -3,6 +3,7 @@ using Badger.Classes;
 using DSharpPlus;
 using DSharpPlus.Entities;
 using DSharpPlus.EventArgs;
+using System;
 using System.Text.RegularExpressions;
 using System.Threading.Channels;
 
@@ -26,7 +27,15 @@ namespace Badger
         public async Task AssignAllInteractions()
         {
             Bot.Client.InteractionCreated += LogInteractions;
-            Bot.Client.VoiceStateUpdated += UpdateVoiceChannels;
+            Bot.Client.VoiceStateUpdated += async (c, e) =>
+            {
+                await UpdateVoiceChannels(e);
+                await CheckUserActivityWrapper(e);
+            };
+            Bot.Client.MessageCreated += async (c, e) =>
+            {
+                await CheckUserActivityWrapper(e);
+            };
 
             Bot.Client.ComponentInteractionCreated += async (c, e) =>
             {
@@ -330,10 +339,49 @@ namespace Badger
             await channel.SendMessageAsync(embed);
         }
 
+        private async Task CheckUserActivityWrapper(VoiceStateUpdateEventArgs eventArgs)
+        {
+            var interactionUser = await eventArgs.Guild.GetMemberAsync(eventArgs.User.Id);
+            await CheckUserActivity(interactionUser);
+        }
+
+        private async Task CheckUserActivityWrapper(MessageCreateEventArgs eventArgs)
+        {
+            var interactionUser = await eventArgs.Guild.GetMemberAsync(eventArgs.Author.Id);
+            await CheckUserActivity(interactionUser);
+        }
+
+        private async Task CheckUserActivity(DiscordMember interactionUser)
+        {
+            var dbCtx = new BadgerContext();
+            var users = dbCtx.UserInfo.ToList();
+            if (!users.Any(x => x.DiscordID == interactionUser.Id))
+            {
+                dbCtx.UserInfo.Add(new UserInfo(interactionUser.Username, interactionUser.Id));
+                await dbCtx.SaveChangesAsync();
+            }
+            foreach (var user in users)
+            {
+                if (user.DiscordID == interactionUser.Id)
+                {
+                    var inactiveRole = Bot.Client.GetGuildAsync(343867882264068098).Result.GetRole(RoleID.INACTIVE);
+                    user.LastActive = DateTime.Now;
+                    await dbCtx.SaveChangesAsync();
+                    if (interactionUser.Roles.Any(x => x.Id == RoleID.INACTIVE))
+                    {
+                        await interactionUser.RevokeRoleAsync(inactiveRole);
+                        var activeRole = Bot.Client.GetGuildAsync(343867882264068098).Result.GetRole(RoleID.ACTIVE);
+                        await interactionUser.GrantRoleAsync(activeRole);
+                    }
+                    break;
+                }
+            }
+        }
+
         private bool _updatingChannels = false;
         private bool _eventDuringChannelUpdate = false;
 
-        private async Task UpdateVoiceChannels(DiscordClient client, VoiceStateUpdateEventArgs eventArgs)
+        private async Task UpdateVoiceChannels(VoiceStateUpdateEventArgs eventArgs)
         {
         again:
             if (_updatingChannels)
@@ -419,7 +467,7 @@ namespace Badger
                             messages.Reverse();
                             foreach (var message in messages)
                             {
-                                txtFile += $"{message.CreationTimestamp} - {message.Content}";
+                                txtFile += $"[{message.CreationTimestamp}] {message.Author.Username}: {message.Content}";
                                 foreach (var attachment in message.Attachments)
                                 {
                                     txtFile += $" {attachment.Url}";
